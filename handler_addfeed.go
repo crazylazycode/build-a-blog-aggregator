@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -13,7 +12,7 @@ import (
 func handlerAddFeed(s *state, cmd command) error {
 
 	if len(cmd.Args) != 2 {
-		return errors.New("the addfeed handler expects two arguments: name and url")
+		return fmt.Errorf("usage: %v <name> <>", cmd.Name)
 	}
 
 	name := cmd.Args[0]
