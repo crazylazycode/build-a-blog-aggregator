@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -38,6 +39,16 @@ func (c *commands) register(name string, f func(*state, command) error) {
 	c.registeredCommands[name] = f
 }
 
+func middlewareLoggedIn(handler func(s *state, cmd command, user database.User) error) func(*state, command) error {
+	return func(s *state, cmd command) error {
+		user, err := s.db.GetUser(context.Background(), s.cfg.CurrentUserName)
+		if err != nil {
+			return fmt.Errorf("couldn't create user: %w", err)
+		}
+		return handler(s, cmd, user)
+	}
+}
+
 func main() {
 
 	cfg, err := config.Read()
@@ -65,10 +76,13 @@ func main() {
 	cmds.register("reset", handlerReset)
 	cmds.register("users", handlerListUsers)
 	cmds.register("agg", handlerAgg)
-	cmds.register("addfeed", handlerAddFeed)
 	cmds.register("feeds", handlerListFeeds)
-	cmds.register("follow", handlerFollow)
-	cmds.register("following", handlerListFeedFollows)
+
+	// Logged-in middleware commands
+	cmds.register("addfeed", middlewareLoggedIn(handlerAddFeed))
+	cmds.register("follow", middlewareLoggedIn(handlerFollow))
+	cmds.register("following", middlewareLoggedIn(handlerListFeedFollows))
+	cmds.register("unfollow", middlewareLoggedIn(handlerUnfollow))
 
 	if len(os.Args) < 2 {
 		fmt.Println("Error: not enough arguments provided")
