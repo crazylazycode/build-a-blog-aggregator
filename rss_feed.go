@@ -27,68 +27,44 @@ type RSSItem struct {
 }
 
 func fetchFeed(ctx context.Context, feedURL string) (*RSSFeed, error) {
+	httpClient := http.Client{
+		Timeout: 10 * time.Second,
+	}
 	req, err := http.NewRequestWithContext(ctx, "GET", feedURL, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	req.Header.Set("User-Agent", "gator")
-
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
-
-	res, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
 
-	defer res.Body.Close()
-
-	if res.StatusCode < 200 || res.StatusCode > 299 {
-		return nil, fmt.Errorf("bad status code: %d", res.StatusCode)
+	// Fail early if server returns non-200 (e.g. 404, 403, or HTML redirects)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("bad status code: %d", resp.StatusCode)
 	}
 
-	data, err := io.ReadAll(res.Body)
+	dat, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 
 	var rssFeed RSSFeed
-	err = xml.Unmarshal(data, &rssFeed)
+	err = xml.Unmarshal(dat, &rssFeed)
 	if err != nil {
 		return nil, err
 	}
 
 	rssFeed.Channel.Title = html.UnescapeString(rssFeed.Channel.Title)
 	rssFeed.Channel.Description = html.UnescapeString(rssFeed.Channel.Description)
-
-	for i := range rssFeed.Channel.Item {
-		rssFeed.Channel.Item[i].Title = html.UnescapeString(rssFeed.Channel.Item[i].Title)
-		rssFeed.Channel.Item[i].Description = html.UnescapeString(rssFeed.Channel.Item[i].Description)
+	for i, item := range rssFeed.Channel.Item {
+		item.Title = html.UnescapeString(item.Title)
+		item.Description = html.UnescapeString(item.Description)
+		rssFeed.Channel.Item[i] = item
 	}
 
 	return &rssFeed, nil
-}
-
-func scrapeFeeds(s *state) error {
-	nextFeed, err := s.db.GetNextFeedToFetch(context.Background())
-	if err != nil {
-		return fmt.Errorf("couldn't get next feed to fetch: %w", err)
-	}
-
-	err = s.db.MarkFeedFetched(context.Background(), nextFeed.ID)
-	if err != nil {
-		return fmt.Errorf("couldn't mark feed as fetched: %w", err)
-	}
-
-	feed, err := fetchFeed(context.Background(), nextFeed.Url)
-
-	fmt.Printf("--- Fetching %s (%s) ---\n", nextFeed.Name, nextFeed.Url)
-	for _, item := range feed.Channel.Item {
-		fmt.Printf("* %s\n", item.Title)
-	}
-	fmt.Println()
-
-	return nil
 }
